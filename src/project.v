@@ -69,7 +69,7 @@ module tt_um_vga_ca(
   wire [7:0] next_cell_idx = cell_x + 8'd2;
 
   wire preload_step = (pix_x >= PRE_X - 10'd5) && (pix_x <= PRE_X - 10'd1);
-  wire shift_window = preload_step || (in_grid && fract_x == 0 && cell_x != 0);
+  wire shift_window = preload_step || (in_grid && fract_x == 0 && cell_x != 0 && pix_y != 0);
 
   reg next_window_bit;
   always @(*) begin
@@ -140,7 +140,8 @@ module tt_um_vga_ca(
 
   // Video Output
   wire c = new_cell & in_grid;
-  wire [5:0] color = c ? {1'b1, window} : bg_color;
+  wire [4:0] win = (pix_y == 0) ? 5'b0 : window;
+  wire [5:0] color = c ? {1'b1, win} : bg_color;
   wire [1:0] R = color[5:4];
   wire [1:0] G = color[3:2];
   wire [1:0] B = color[1:0];

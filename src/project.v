@@ -99,11 +99,14 @@ module tt_um_vga_ca(
   parameter [31:0] RULE       = 32'h6C1E53A8;
 
   reg first_frame;
+  reg [6:0] frame_cnt;
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       first_frame <= 1'b1;
+      frame_cnt   <= 7'd0;
     end else if (pix_x == WIDTH && pix_y == HEIGHT) begin
       first_frame <= 1'b0;
+      frame_cnt   <= frame_cnt + 7'd1;
     end
   end
 
@@ -134,9 +137,9 @@ module tt_um_vga_ca(
     .q(first_row_q)
   );
 
-  wire bg_star;
-  starfield sf(pix_x, pix_y[8:0], bg_star);
-  wire [5:0] bg_color = {6{bg_star&in_grid}};
+  wire [1:0] star_brightness;
+  starfield sf(pix_x, pix_y[8:0], frame_cnt, star_brightness);
+  wire [5:0] bg_color = in_grid ? {3{star_brightness}} : 6'b0;
 
   // Video Output
   wire c = new_cell & in_grid;
@@ -150,9 +153,10 @@ module tt_um_vga_ca(
 endmodule
 
 module starfield (
-    input  wire [9:0] x,   // 0..639
-    input  wire [8:0] y,   // 0..479
-    output wire       pix
+    input  wire [9:0] x,
+    input  wire [8:0] y,
+    input  wire [6:0] frame_cnt,
+    output wire [1:0] brightness
 );
     wire [12:0] c  = {y[8:3], x[9:3]};             // 8×8 cell index
     wire [12:0] h1 = (c  + (c  << 1)) ^ (c  >> 3);
@@ -160,9 +164,16 @@ module starfield (
     wire [12:0] h  = (h2 + (h2 << 2)) ^ (h2 >> 3);
 
     wire [2:0] m = {2'b11, |h[4:3]};               // big stars: 2×2
-    assign pix = ~|h[12:11]
-               & ~|((x[2:0] ^ h[7:5])  & m)
-               & ~|((y[2:0] ^ h[10:8]) & m);
+    wire pix = ~|h[12:11]
+             & ~|((x[2:0] ^ h[7:5])  & m)
+             & ~|((y[2:0] ^ h[10:8]) & m);
+
+    wire [5:0] speed = (h[2:1] == 2'b00) ? {frame_cnt[4:0], 1'b0} :
+                       (h[2:1] == 2'b01) ? frame_cnt[6:1] : frame_cnt[5:0];
+    wire [5:0] phase = speed + {h[4:0], h[7]};
+    wire [1:0] star_b = phase[4:3] ^ {2{phase[5]}};
+
+    assign brightness = pix ? star_b : 2'b00;
 endmodule
 
 module latch_mem #(

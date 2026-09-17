@@ -65,11 +65,23 @@ module tt_um_vga_ca(
     end
   end
 
+  reg first_frame;
+  reg [6:0] frame_cnt;
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      first_frame <= 1'b1;
+      frame_cnt   <= 7'd0;
+    end else if (pix_x == WIDTH && pix_y == HEIGHT) begin
+      first_frame <= 1'b0;
+      frame_cnt   <= frame_cnt + 7'd1;
+    end
+  end
+
   reg [4:0] window;
   wire [7:0] next_cell_idx = cell_x + 8'd2;
 
   wire preload_step = (pix_x >= PRE_X - 10'd5) && (pix_x <= PRE_X - 10'd1);
-  wire shift_window = preload_step || (in_grid && fract_x == 0 && cell_x != 0 && pix_y != 0);
+  wire shift_window = preload_step || (in_grid && fract_x == 0 && cell_x != 0 && !(first_frame && pix_y == 0));
 
   reg next_window_bit;
   always @(*) begin
@@ -98,18 +110,6 @@ module tt_um_vga_ca(
   // CA Rule and Cell Evaluation
   parameter [31:0] RULE       = 32'h6C1E53A8;
 
-  reg first_frame;
-  reg [6:0] frame_cnt;
-  always @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
-      first_frame <= 1'b1;
-      frame_cnt   <= 7'd0;
-    end else if (pix_x == WIDTH && pix_y == HEIGHT) begin
-      first_frame <= 1'b0;
-      frame_cnt   <= frame_cnt + 7'd1;
-    end
-  end
-
   wire fast_mode          = ui_in[0];
   wire inject_gliders     = ui_in[1];
   wire seed_row           = cell_x[2] ^ cell_x[5] ^ cell_x[7] ^ (cell_x[2] & cell_x[7]) ^ (cell_x[3] & cell_x[6]);
@@ -117,7 +117,7 @@ module tt_um_vga_ca(
   wire first_row_cell_val = first_frame ? seed_row : first_row_q[cell_x] | (inject_gliders & gliders_row);
   wire rule_cell          = (fract_y == 0) ? RULE[window] : window[2];
   /* verilator lint_off UNOPTFLAT */
-  wire new_cell           = (pix_y==0 && !fast_mode) ? first_row_cell_val : rule_cell;
+  wire new_cell           = (pix_y==0 && (!fast_mode || first_frame)) ? first_row_cell_val : rule_cell;
   /* verilator lint_on UNOPTFLAT */
 
   // Memory Banks
@@ -143,7 +143,7 @@ module tt_um_vga_ca(
 
   // Video Output
   wire c = new_cell & in_grid;
-  wire [4:0] win = (pix_y == 0) ? 5'b0 : window;
+  wire [4:0] win = (first_frame && pix_y == 0) ? 5'b0 : window;
   wire [5:0] color = c ? {1'b1, win} : bg_color;
   wire [1:0] R = color[5:4];
   wire [1:0] G = color[3:2];

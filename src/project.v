@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024 Alexander Mordvintsev
+ * Copyright (c) 2026 Alexander Mordvintsev
  * SPDX-License-Identifier: Apache-2.0
  */
 

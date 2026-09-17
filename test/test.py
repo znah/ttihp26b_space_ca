@@ -1,40 +1,77 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
+# SPDX-FileCopyrightText: © 2026 Alexander Mordvintsev
 # SPDX-License-Identifier: Apache-2.0
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
+from cocotb.triggers import ClockCycles, ReadOnly
 
 
-@cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
-
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, unit="us")
+async def init_and_reset(dut):
+    """Start 25.175 MHz clock (~40 ns period) and perform initial reset."""
+    clock = Clock(dut.clk, 40, unit="ns")
     cocotb.start_soon(clock.start())
 
-    # Reset
-    dut._log.info("Reset")
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
     dut.rst_n.value = 0
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
-
-    dut._log.info("Test project behavior")
-
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
-
-    # Wait for one clock cycle to see the output values
     await ClockCycles(dut.clk, 1)
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+@cocotb.test()
+async def test_reset_and_bidi(dut):
+    """Verify clean reset and bidirectional pin configuration."""
+    await init_and_reset(dut)
+    await ReadOnly()
+
+    assert dut.uio_out.value == 0, f"Expected uio_out=0, got {dut.uio_out.value}"
+    assert dut.uio_oe.value == 0, f"Expected uio_oe=0, got {dut.uio_oe.value}"
+    assert dut.uo_out.value.is_resolvable, "uo_out contains X/Z bits after reset"
+
+
+@cocotb.test()
+async def test_hsync_and_video(dut):
+    """Verify horizontal timing (800 cycles) and non-zero video output."""
+    await init_and_reset(dut)
+
+    # 1. Active video area (first 640 cycles): hsync should remain low (bit 7)
+    for _ in range(640):
+        await ClockCycles(dut.clk, 1)
+        await ReadOnly()
+        assert (int(dut.uo_out.value) & 0x80) == 0, "hsync pulsed early in active area"
+
+    # 2. Advance through front porch (16 cycles) to hsync pulse
+    await ClockCycles(dut.clk, 16 + 2)
+    await ReadOnly()
+    assert (int(dut.uo_out.value) & 0x80) == 0x80, "hsync should be active high"
+
+    # 3. Advance across sync pulse (96 cycles)
+    await ClockCycles(dut.clk, 96)
+    await ReadOnly()
+    assert (int(dut.uo_out.value) & 0x80) == 0, "hsync should deassert after 96 cycles"
+
+    # 4. Check that CA + starfield produce active RGB colors in scanline 1
+    found_rgb = False
+    for _ in range(640):
+        await ClockCycles(dut.clk, 1)
+        await ReadOnly()
+        # mask RGB bits: uo_out = {hsync, B0, G0, R0, vsync, B1, G1, R1}
+        if (int(dut.uo_out.value) & 0x77) != 0:
+            found_rgb = True
+            break
+    assert found_rgb, "Active video scanline produced all black (no CA/stars output)"
+
+
+@cocotb.test()
+async def test_controls(dut):
+    """Verify toggling ui_in controls does not induce X/Z states."""
+    await init_and_reset(dut)
+
+    for ui_val in [0x01, 0x02, 0x03, 0x00]:
+        await ClockCycles(dut.clk, 1)
+        dut.ui_in.value = ui_val
+        await ClockCycles(dut.clk, 20)
+        await ReadOnly()
+        assert dut.uo_out.value.is_resolvable, f"X/Z detected with ui_in={ui_val:#x}"

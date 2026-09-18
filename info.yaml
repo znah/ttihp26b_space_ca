@@ -2,7 +2,7 @@
 project:
   title:        "Space CA"      # Project title
   author:       "Alexander Mordvintsev"      # Your name
-  discord:      alexandermordvintsev"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
+  discord:      "alexandermordvintsev"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
   description:  "VGA demo: Giant Computer in Space"    # One line description of what your project does
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     25175000     # Clock frequency in Hz (or 0 if not applicable)

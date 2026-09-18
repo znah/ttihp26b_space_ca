@@ -13,16 +13,20 @@ You can also include images in this folder and reference them in the markdown. E
 
 **Space CA** is a real-time hardware VGA demo ("Giant Computer in Space") that simulates and visualizes a 1D cellular automaton evolving over time against a procedural background starfield.
 
-- **VGA Generator**: Generates standard 640×480 @ 60 Hz timing from a 25.175 MHz pixel clock.
+- **Interactive Online Demo**: Run it live directly in your browser on **[VGA Playground](https://vga-playground.com/?repo=https://github.com/znah/ttihp26b_space_ca)**!
+- **VGA Generator**: Generates standard 640×480 @ 60 Hz timing from a 25.175 MHz pixel clock with clean asynchronous reset.
 - **Cellular Automaton**:
   - Grid width: 160 cells across the screen (`GRID_W = 160`), rendered as 4×4 pixel blocks (`CELL_SIZE = 4`).
-  - Rule: 5-neighborhood toroidal elementary cellular automaton (`RULE = 32'h6C1E53A8`).
+  - Rule: 5-neighborhood elementary cellular automaton (`RULE = 32'h6C1E53A8`) with toroidal boundary wrapping.
   - Evolution: Rows are computed line-by-line as the beam scans downwards, showing space horizontally and time vertically (120 generations per frame).
 - **Coloring & Effects**:
   - Active cells are colored using their 5-cell neighborhood window state (`{1'b1, window}`) mapped to 6-bit color (R2G2B2).
-  - Procedural background starfield synthesized using integer hashing hardware (`starfield` module).
+  - Procedural background starfield synthesized using integer hashing hardware (`starfield` module) with twinkling brightness cycles.
 - **Memory**:
-  - Uses two latch banks (`cells` and `first_row_cells`) synthesized with IHP `sg13g2_dlhq_1` latches to maintain the 160-bit state between scanlines and frame boundaries without consuming standard flip-flop area.
+  - Uses portable behavioral latch inference (`latch_mem`) under standard `` `ifndef SYNTHESIS ``:
+    - **Simulation (VGA Playground / Verilator / Icarus):** High-speed word-based array for maximum simulation FPS.
+    - **Synthesis (Yosys / LibreLane):** Portable active-high `$_DLATCH_P_` latches (mapping directly to `sg13g2_dlhq_1` in IHP 130nm) without consuming flip-flop area or tie-high cells.
+  - Two latch banks maintain the 160-bit state between scanlines (`cells`) and frame boundaries (`first_row_cells`).
 - **Interactive Controls**:
   - `ui_in[0]` (`advance_mode`): Toggles between smooth 1-row vertical scrolling and jumping by a full frame.
   - `ui_in[1]` (`inject_gliders`): Injects gliders into cells 80..83 of row 0.

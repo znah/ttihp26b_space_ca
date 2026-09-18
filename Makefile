@@ -1,6 +1,6 @@
-.PHONY: all build visualize sim
+.PHONY: all build visualize visualize-klayout sim
 
-CONFIG = flow/config.json
+CONFIGS = src/config.json flow/config.json
 
 ifneq ($(MAKECMDGOALS),sim)
 ifndef LIBRELANE_ROOT
@@ -20,6 +20,14 @@ sim: $(SIM_SRC)
 		-o demo -DSIM && obj_dir/demo
 
 # 2. Run the LibreLane flow
-build: $(CONFIG) src/project.v src/hvsync_generator.v
+build: $(CONFIGS) src/project.v src/hvsync_generator.v
 	@echo "Running implementation flow..."
-	$(RUN_CMD) "python3 -m librelane --pdk ihp-sg13g2 --run-tag main --overwrite $(CONFIG)"
+	$(RUN_CMD) "python3 -m librelane --pdk ihp-sg13g2 --run-tag main --overwrite $(CONFIGS)"
+
+# 3. View layout in OpenROAD GUI
+visualize:
+	$(RUN_CMD) "python3 -m librelane --pdk ihp-sg13g2 --flow openinopenroad --run-tag main $(CONFIGS)"
+
+# 4. View layout in KLayout
+visualize-klayout:
+	$(RUN_CMD) "python3 -m librelane --pdk ihp-sg13g2 --flow openinklayout --run-tag main $(CONFIGS)"

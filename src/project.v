@@ -196,33 +196,6 @@ module latch_mem #(
 );
   localparam NUM_WORDS = WIDTH / 32;
 
-`ifdef PDK_ihp_sg13g2
-  wire [31:0] latch_q    [0:NUM_WORDS-1];
-  wire [31:0] latch_gate [0:NUM_WORDS-1];
-  genvar w, b;
-  generate
-    for (w = 0; w < NUM_WORDS; w = w + 1) begin : gen_bank
-      for (b = 0; b < 32; b = b + 1) begin : gen_bit
-        assign latch_gate[w][b] = we && (waddr == (w * 32 + b));
-        sg13g2_dlhq_1 latch_inst (
-          .Q(latch_q[w][b]),
-          .D(in),
-          .GATE(latch_gate[w][b])
-        );
-      end
-    end
-  endgenerate
-
-  wire [NUM_WORDS-1:0] bank_dout;
-  genvar k;
-  generate
-    for (k = 0; k < NUM_WORDS; k = k + 1) begin : gen_mux
-      assign bank_dout[k] = latch_q[k][raddr[4:0]];
-    end
-  endgenerate
-
-  assign q = bank_dout[raddr[7:5]];
-`else
   reg [31:0] mem [0:NUM_WORDS-1];
   integer j;
   initial begin
@@ -239,5 +212,4 @@ module latch_mem #(
   end
   /* verilator lint_on LATCH */
   assign q = mem[raddr[7:5]][raddr[4:0]];
-`endif
 endmodule

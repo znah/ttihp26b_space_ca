@@ -51,8 +51,23 @@ module tt_um_vga_ca(
   wire cell_tick = in_grid && (fract_x == 2'd2);
 
   // Toroidal 5-neighborhood sliding window
-  wire [GRID_W-1:0] cells_q;
-  wire [GRID_W-1:0] first_row_q;
+  wire cells_dout;
+  wire first_row_dout;
+
+  reg [4:0] window;
+  wire [7:0] next_cell_idx = cell_x + 8'd2;
+
+  reg [7:0] cells_raddr;
+  always @(*) begin
+    case (pix_x)
+      PRE_X - 10'd5: cells_raddr = 8'(GRID_W - 2);
+      PRE_X - 10'd4: cells_raddr = 8'(GRID_W - 1);
+      PRE_X - 10'd3: cells_raddr = 8'd0;
+      PRE_X - 10'd2: cells_raddr = 8'd1;
+      PRE_X - 10'd1: cells_raddr = 8'd2;
+      default:       cells_raddr = next_cell_idx;
+    endcase
+  end
 
   reg saved_cell0, saved_cell1;
   always @(posedge clk or negedge rst_n) begin
@@ -60,8 +75,8 @@ module tt_um_vga_ca(
       saved_cell0 <= 1'b0;
       saved_cell1 <= 1'b0;
     end else begin
-      if (pix_x == PRE_X - 10'd3) saved_cell0 <= cells_q[0];
-      if (pix_x == PRE_X - 10'd2) saved_cell1 <= cells_q[1];
+      if (pix_x == PRE_X - 10'd3) saved_cell0 <= cells_dout;
+      if (pix_x == PRE_X - 10'd2) saved_cell1 <= cells_dout;
     end
   end
 
@@ -77,26 +92,18 @@ module tt_um_vga_ca(
     end
   end
 
-  reg [4:0] window;
-  wire [7:0] next_cell_idx = cell_x + 8'd2;
-
   wire preload_step = (pix_x >= PRE_X - 10'd5) && (pix_x <= PRE_X - 10'd1);
   wire shift_window = preload_step || (in_grid && fract_x == 0 && cell_x != 0 && !(first_frame && pix_y == 0));
 
   reg next_window_bit;
   always @(*) begin
-    next_window_bit = cells_q[next_cell_idx];
-    if (cell_x == 8'(GRID_W - 2)) next_window_bit = saved_cell0;
-    if (cell_x == 8'(GRID_W - 1)) next_window_bit = saved_cell1;
-
-    case (pix_x)
-      PRE_X - 10'd5: next_window_bit = cells_q[GRID_W - 2];
-      PRE_X - 10'd4: next_window_bit = cells_q[GRID_W - 1];
-      PRE_X - 10'd3: next_window_bit = cells_q[0];
-      PRE_X - 10'd2: next_window_bit = cells_q[1];
-      PRE_X - 10'd1: next_window_bit = cells_q[2];
-      default: ;
-    endcase
+    if (cell_x == 8'(GRID_W - 2)) begin
+      next_window_bit = saved_cell0;
+    end else if (cell_x == 8'(GRID_W - 1)) begin
+      next_window_bit = saved_cell1;
+    end else begin
+      next_window_bit = cells_dout;
+    end
   end
 
   always @(posedge clk or negedge rst_n) begin
@@ -114,7 +121,7 @@ module tt_um_vga_ca(
   wire inject_gliders     = ui_in[1];
   wire seed_row           = cell_x[2] ^ cell_x[5] ^ cell_x[7] ^ (cell_x[2] & cell_x[7]) ^ (cell_x[3] & cell_x[6]);
   wire gliders_row        = cell_x >= 80 & cell_x <= 83;
-  wire first_row_cell_val = first_frame ? seed_row : first_row_q[cell_x] | (inject_gliders & gliders_row);
+  wire first_row_cell_val = first_frame ? seed_row : first_row_dout | (inject_gliders & gliders_row);
   wire rule_cell          = (fract_y == 0) ? RULE[window] : window[2];
   /* verilator lint_off UNOPTFLAT */
   wire new_cell           = (pix_y==0 && (!fast_mode || first_frame)) ? first_row_cell_val : rule_cell;
@@ -123,18 +130,20 @@ module tt_um_vga_ca(
   // Memory Banks
   wire cells_we = cell_tick && (fract_y == 0 || pix_y == 0);
   latch_mem #(.WIDTH(GRID_W)) cells (
-    .we(cells_we),
-    .addr(cell_x),
-    .in(new_cell),
-    .q(cells_q)
+    .we   (cells_we),
+    .waddr(cell_x),
+    .in   (new_cell),
+    .raddr(cells_raddr),
+    .q    (cells_dout)
   );
 
   wire first_row_we = cell_tick && (pix_y == CELL_SIZE);
   latch_mem #(.WIDTH(GRID_W)) first_row_cells (
-    .we(first_row_we),
-    .addr(cell_x),
-    .in(new_cell),
-    .q(first_row_q)
+    .we   (first_row_we),
+    .waddr(cell_x),
+    .in   (new_cell),
+    .raddr(cell_x),
+    .q    (first_row_dout)
   );
 
   wire [1:0] star_brightness;
@@ -179,33 +188,56 @@ endmodule
 module latch_mem #(
   parameter WIDTH = 160
 )(
-  input  wire             we,
-  input  wire [7:0]       addr,
-  input  wire             in,
-  output wire [WIDTH-1:0] q
+  input  wire       we,
+  input  wire [7:0] waddr,
+  input  wire       in,
+  input  wire [7:0] raddr,
+  output wire       q
 );
+  localparam NUM_WORDS = WIDTH / 32;
+
 `ifdef PDK_ihp_sg13g2
-  wire [WIDTH-1:0] latch_gate;
-  genvar i;
+  wire [31:0] latch_q    [0:NUM_WORDS-1];
+  wire [31:0] latch_gate [0:NUM_WORDS-1];
+  genvar w, b;
   generate
-    for (i = 0; i < WIDTH; i = i + 1) begin : gen_latch
-      assign latch_gate[i] = we && (addr == i[7:0]);
-      sg13g2_dlhq_1 latch_inst (
-        .Q(q[i]),
-        .D(in),
-        .GATE(latch_gate[i])
-      );
+    for (w = 0; w < NUM_WORDS; w = w + 1) begin : gen_bank
+      for (b = 0; b < 32; b = b + 1) begin : gen_bit
+        assign latch_gate[w][b] = we && (waddr == (w * 32 + b));
+        sg13g2_dlhq_1 latch_inst (
+          .Q(latch_q[w][b]),
+          .D(in),
+          .GATE(latch_gate[w][b])
+        );
+      end
     end
   endgenerate
+
+  wire [NUM_WORDS-1:0] bank_dout;
+  genvar k;
+  generate
+    for (k = 0; k < NUM_WORDS; k = k + 1) begin : gen_mux
+      assign bank_dout[k] = latch_q[k][raddr[4:0]];
+    end
+  endgenerate
+
+  assign q = bank_dout[raddr[7:5]];
 `else
-  reg [WIDTH-1:0] mem = {WIDTH{1'b0}};
+  reg [31:0] mem [0:NUM_WORDS-1];
+  integer j;
+  initial begin
+    for (j = 0; j < NUM_WORDS; j = j + 1) begin
+      mem[j] = 32'b0;
+    end
+  end
+
   /* verilator lint_off LATCH */
   always @(*) begin
     if (we) begin
-      mem[addr] = in;
+      mem[waddr[7:5]][waddr[4:0]] = in;
     end
   end
   /* verilator lint_on LATCH */
-  assign q = mem;
+  assign q = mem[raddr[7:5]][raddr[4:0]];
 `endif
 endmodule

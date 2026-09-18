@@ -1,7 +1,5 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
-
 # Space CA ("Giant Computer in Space")
 
 A real-time hardware VGA demo implementing a 1D cellular automaton evolving in space across a 160×120 grid against a procedural twinkling starfield, designed for the IHP 130nm SG13G2 process via Tiny Tapeout.

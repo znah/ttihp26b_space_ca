@@ -121,7 +121,8 @@ module tt_um_vga_ca(
   wire inject_gliders     = ui_in[1];
   wire seed_row           = cell_x[2] ^ cell_x[5] ^ cell_x[7] ^ (cell_x[2] & cell_x[7]) ^ (cell_x[3] & cell_x[6]);
   wire gliders_row        = cell_x >= 80 & cell_x <= 83;
-  wire first_row_cell_val = first_frame ? seed_row : first_row_dout | (inject_gliders & gliders_row);
+  wire safe_first_row_dout = first_frame ? 1'b0 : first_row_dout;
+  wire first_row_cell_val = first_frame ? seed_row : (safe_first_row_dout | (inject_gliders & gliders_row));
   wire rule_cell          = (fract_y == 0) ? RULE[window] : window[2];
   /* verilator lint_off UNOPTFLAT */
   wire new_cell           = (pix_y==0 && (!fast_mode || first_frame)) ? first_row_cell_val : rule_cell;
@@ -158,7 +159,7 @@ module tt_um_vga_ca(
   wire [1:0] G = color[3:2];
   wire [1:0] B = color[1:0];
 
-  assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
+  assign uo_out = !rst_n ? 8'b0 : {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
 endmodule
 
 module starfield (
@@ -196,6 +197,8 @@ module latch_mem #(
 );
   localparam NUM_WORDS = WIDTH / 32;
 
+`ifndef SYNTHESIS
+  // Fast word-based array for high simulation FPS (VGA playground / Verilator / Icarus)
   reg [31:0] mem [0:NUM_WORDS-1];
   integer j;
   initial begin
@@ -212,4 +215,19 @@ module latch_mem #(
   end
   /* verilator lint_on LATCH */
   assign q = mem[raddr[7:5]][raddr[4:0]];
+`else
+  // Portable behavioral latches for synthesis: infers active-high $_DLATCH_P_ (maps to standard cell dlhq_1)
+  reg [WIDTH-1:0] mem;
+  genvar i;
+  generate
+    for (i = 0; i < WIDTH; i = i + 1) begin : gen_latch
+      always @(*) begin
+        if (we && (waddr == i)) begin
+          mem[i] = in;
+        end
+      end
+    end
+  endgenerate
+  assign q = mem[raddr];
+`endif
 endmodule

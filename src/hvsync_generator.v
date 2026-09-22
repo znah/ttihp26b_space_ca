@@ -37,8 +37,8 @@ module hvsync_generator(clk, reset, hsync, vsync, display_on, hpos, vpos);
   parameter V_SYNC_END      = V_DISPLAY + V_BOTTOM + V_SYNC - 1;
   parameter V_MAX           = V_DISPLAY + V_TOP + V_BOTTOM + V_SYNC - 1;
 
-  wire hmaxxed = (hpos == H_MAX) || reset;	// set when hpos is maximum
-  wire vmaxxed = (vpos == V_MAX) || reset;	// set when vpos is maximum
+  wire hmaxxed = (hpos == H_MAX);	// set when hpos is maximum
+  wire vmaxxed = (vpos == V_MAX);	// set when vpos is maximum
   
   // horizontal position counter
   always @(posedge clk or posedge reset) begin

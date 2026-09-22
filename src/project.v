@@ -47,7 +47,7 @@ module tt_um_vga_ca(
   wire [logCELL_SIZE-1:0] fract_x = x[logCELL_SIZE-1:0];
   wire [logCELL_SIZE-1:0] fract_y = pix_y[logCELL_SIZE-1:0];
 
-  wire in_grid   = (cell_x < GRID_W) && video_active;
+  wire in_grid   = video_active;
   wire cell_tick = in_grid && (fract_x == 2'd2);
 
   // Toroidal 5-neighborhood sliding window
@@ -117,49 +117,48 @@ module tt_um_vga_ca(
   // CA Rule and Cell Evaluation
   parameter [31:0] RULE       = 32'h6C1E53A8;
 
-  wire fast_mode          = ui_in[0];
-  wire inject_gliders     = ui_in[1];
-  wire seed_row           = cell_x[2] ^ cell_x[5] ^ cell_x[7] ^ (cell_x[2] & cell_x[7]) ^ (cell_x[3] & cell_x[6]);
-  wire gliders_row        = cell_x >= 80 & cell_x <= 83;
+  wire fast_mode           = ui_in[0];
+  wire inject_gliders      = ui_in[1];
+  wire first_row_active    = (pix_y == 0) && (!fast_mode || first_frame);
+  wire seed_row            = cell_x[2] ^ cell_x[5] ^ cell_x[7] ^ (cell_x[2] & cell_x[7]) ^ (cell_x[3] & cell_x[6]);
+  wire gliders_row         = cell_x >= 80 & cell_x <= 83;
   wire safe_first_row_dout = first_frame ? 1'b0 : first_row_dout;
-  wire first_row_cell_val = first_frame ? seed_row : (safe_first_row_dout | (inject_gliders & gliders_row));
-  wire rule_cell          = (fract_y == 0) ? RULE[window] : window[2];
+  wire first_row_cell_val  = first_frame ? seed_row : (safe_first_row_dout | (inject_gliders & gliders_row));
+  wire rule_cell           = (fract_y == 0) ? RULE[window] : window[2];
   /* verilator lint_off UNOPTFLAT */
-  wire new_cell           = (pix_y==0 && (!fast_mode || first_frame)) ? first_row_cell_val : rule_cell;
+  wire new_cell            = first_row_active ? first_row_cell_val : rule_cell;
   /* verilator lint_on UNOPTFLAT */
 
   // Memory Banks
-  wire cells_we = cell_tick && (fract_y == 0 || pix_y == 0);
+  wire use_waddr    = in_grid && (fract_x != 2'd0);
+  wire [7:0] cells_addr = use_waddr ? cell_x : cells_raddr;
+  wire cells_we     = cell_tick && (fract_y == 0 || pix_y == 0);
   latch_mem #(.WIDTH(GRID_W)) cells (
-    .we   (cells_we),
-    .waddr(cell_x),
-    .in   (new_cell),
-    .raddr(cells_raddr),
-    .q    (cells_dout)
+    .we  (cells_we),
+    .addr(cells_addr),
+    .in  (new_cell),
+    .q   (cells_dout)
   );
 
   wire first_row_we = cell_tick && (pix_y == CELL_SIZE);
   latch_mem #(.WIDTH(GRID_W)) first_row_cells (
-    .we   (first_row_we),
-    .waddr(cell_x),
-    .in   (new_cell),
-    .raddr(cell_x),
-    .q    (first_row_dout)
+    .we  (first_row_we),
+    .addr(cell_x),
+    .in  (new_cell),
+    .q   (first_row_dout)
   );
 
   wire [1:0] star_brightness;
   starfield sf(pix_x, pix_y[8:0], frame_cnt, star_brightness);
-  wire [5:0] bg_color = in_grid ? {3{star_brightness}} : 6'b0;
 
   // Video Output
-  wire c = new_cell & in_grid;
-  wire [4:0] win = (first_frame && pix_y == 0) ? 5'b0 : window;
-  wire [5:0] color = c ? {1'b1, win} : bg_color;
+  wire [4:0] win   = (first_frame && pix_y == 0) ? 5'b0 : window;
+  wire [5:0] color = !in_grid ? 6'b0 : (new_cell ? {1'b1, win} : {3{star_brightness}});
   wire [1:0] R = color[5:4];
   wire [1:0] G = color[3:2];
   wire [1:0] B = color[1:0];
 
-  assign uo_out = !rst_n ? 8'b0 : {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
+  assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
 endmodule
 
 module starfield (
@@ -182,6 +181,7 @@ module starfield (
                        (h[2:1] == 2'b01) ? frame_cnt[6:1] : frame_cnt[5:0];
     wire [5:0] phase = speed + {h[4:0], h[7]};
     wire [1:0] star_b = phase[4:3] ^ {2{phase[5]}};
+    wire _unused_star = &{phase[2:0]};
 
     assign brightness = pix ? star_b : 2'b00;
 endmodule
@@ -190,9 +190,8 @@ module latch_mem #(
   parameter WIDTH = 160
 )(
   input  wire       we,
-  input  wire [7:0] waddr,
+  input  wire [7:0] addr,
   input  wire       in,
-  input  wire [7:0] raddr,
   output wire       q
 );
   localparam NUM_WORDS = WIDTH / 32;
@@ -210,11 +209,11 @@ module latch_mem #(
   /* verilator lint_off LATCH */
   always @(*) begin
     if (we) begin
-      mem[waddr[7:5]][waddr[4:0]] = in;
+      mem[addr[7:5]][addr[4:0]] = in;
     end
   end
   /* verilator lint_on LATCH */
-  assign q = mem[raddr[7:5]][raddr[4:0]];
+  assign q = mem[addr[7:5]][addr[4:0]];
 `else
   // Portable behavioral latches for synthesis: infers active-high $_DLATCH_P_ (maps to standard cell dlhq_1)
   reg [WIDTH-1:0] mem;
@@ -222,12 +221,12 @@ module latch_mem #(
   generate
     for (i = 0; i < WIDTH; i = i + 1) begin : gen_latch
       always @(*) begin
-        if (we && (waddr == i)) begin
+        if (we && (addr == i)) begin
           mem[i] = in;
         end
       end
     end
   endgenerate
-  assign q = mem[raddr];
+  assign q = mem[addr];
 `endif
 endmodule
